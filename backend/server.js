@@ -129,7 +129,7 @@ app.post("/confirm-appointment/:id", async (req, res) => {
 
   const { finalTime } = req.body;
   const isOnline = appointment.consultType.toLowerCase() === "online";
-  const consultationFee = 1;
+  const consultationFee = 499;
 
   appointment.confirmed = true;
   appointment.finalTime = finalTime;
