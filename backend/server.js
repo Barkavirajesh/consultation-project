@@ -3,13 +3,8 @@ require("dotenv").config({ path: path.resolve(__dirname, ".env") });
 
 const express = require("express");
 const nodemailer = require("nodemailer");
-const dotenv = require("dotenv");
 const cors = require("cors");
 const { v4: uuidv4 } = require("uuid");
-
-dotenv.config();
-console.log("EMAIL_USER:", process.env.EMAIL_USER);
-console.log("EMAIL_PASS:", process.env.EMAIL_PASS);
 
 const app = express();
 app.use(cors());
@@ -86,8 +81,10 @@ app.get("/confirm-appointment/:id", (req, res) => {
   const appointment = appointments.get(req.params.id);
   if (!appointment)
     return res.status(404).send('<div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:40px;text-align:center;"><h3 style="color:#c00;font-weight:600;">❌ Appointment not found.</h3></div>');
+
   if (appointment.confirmed)
     return res.send('<div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:40px;text-align:center;"><h3 style="color:#16aa53;font-weight:600;">✅ Already confirmed.</h3></div>');
+
   if (appointment.declined)
     return res.send('<div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:40px;text-align:center;"><h3 style="color:#c00;font-weight:600;">❌ Appointment already declined.</h3></div>');
 
@@ -158,17 +155,26 @@ app.post("/confirm-appointment/:id", async (req, res) => {
         <b>Time:</b> ${finalTime}<br>
         <b>Fee:</b> ₹${consultationFee}
       </div>
-      <div style="text-align:center;margin-bottom:12px;">
-        <a href="${appointment.paymentLink}" style="background:#16aa53;color:white;padding:12px 30px;text-decoration:none;font-size:18px;border-radius:8px;">💳 Pay Now</a>
-      </div>
-      <p style="margin-top:8px;color:#666;text-align:center;">After payment, you’ll automatically get your video consultation link.</p>
+
+      ${
+        isOnline
+          ? `
+            <div style="text-align:center;margin-bottom:12px;">
+              <a href="${appointment.paymentLink}" style="background:#16aa53;color:white;padding:12px 30px;text-decoration:none;font-size:18px;border-radius:8px;">💳 Pay Now</a>
+            </div>
+            <p style="margin-top:8px;color:#666;text-align:center;">After payment, you will receive your video consultation link.</p>
+          `
+          : `
+            <p style="margin-top:8px;color:#666;text-align:center;">Please visit the clinic at your scheduled time.</p>
+          `
+      }
     </div>
   `;
 
   await transporter.sendMail({
     from: process.env.EMAIL_USER,
     to: appointment.email,
-    subject: "Appointment Confirmed - Pay to Proceed",
+    subject: "Appointment Confirmed",
     html: patientHtml,
   });
 
@@ -183,6 +189,7 @@ app.post("/confirm-appointment/:id", async (req, res) => {
         <b>Time:</b> ${finalTime}<br>
         <b>Type:</b> ${appointment.consultType}
       </div>`;
+
   if (isOnline && appointment.videoLink) {
     docHtml += `
       <div style="margin-bottom:18px;text-align:center;padding:10px 0 0 0;">
@@ -382,8 +389,6 @@ app.use(express.static(path.join(__dirname, "../frontend/build")));
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/build/index.html"));
 });
-
-
 
 // Start Server
 const PORT = process.env.PORT || 5000;
