@@ -377,13 +377,13 @@ app.get("/consultation/:id", (req, res) => {
   `);
 });
 
-// Serve frontend static files
 app.use(express.static(path.join(__dirname, "../frontend/build")));
 
-// Catch-all for React routing
-app.use((req, res) => {
-    res.sendFile(path.join(__dirname, "build", "index.html"));
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/build/index.html"));
 });
+
+
 
 // Start Server
 const PORT = process.env.PORT || 5000;
