@@ -36,13 +36,23 @@ transporter.verify((error, success) => {
 
 // ------------------ STEP 1: Book Appointment ------------------
 app.post("/book-appointment", async (req, res) => {
-  const { name, email, number, date, time, consultType, age, amount } = req.body;
-
+  const { name, email, phone, date, time, consultType, age, amount } = req.body;
   if (!email || !consultType)
     return res.status(400).json({ error: "Email and consult type are required" });
 
   const id = uuidv4();
-  appointments.set(id, { id, name, email, date, time,number ,consultType, confirmed: false, declined: false });
+  appointments.set(id, { 
+  id, 
+  name, 
+  email, 
+  phone, 
+  date, 
+  time, 
+  consultType, 
+  confirmed: false, 
+  declined: false 
+});
+
 
   try {
     const confirmLink = `http://localhost:${process.env.PORT || 5000}/confirm-appointment/${id}`;
@@ -55,7 +65,7 @@ app.post("/book-appointment", async (req, res) => {
           <b>Email:</b> ${email}<br>
           <b>Date:</b> ${date}<br>
           <b>Slot:</b> ${time}<br>
-          <b>Phone:</b> ${number}<br>
+          <b>Phone:</b> ${phone}<br>
           <b>Type:</b> ${consultType}
         </div>
         <div style="text-align:center;">
@@ -105,7 +115,8 @@ app.get("/confirm-appointment/:id", (req, res) => {
             <b>Email:</b> ${appointment.email}<br>
             <b>Date:</b> ${appointment.date}<br>
             <b>Slot:</b> ${appointment.time}<br>
-            <b>Phone:</b> ${number}<br>
+            <b>Phone:</b> ${appointment.phone}<br>
+
             <b>Type:</b> ${appointment.consultType}
           </div>
           <form action="/confirm-appointment/${appointment.id}" method="POST" style="margin-bottom:16px;">
@@ -410,4 +421,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`➡️ Open in browser: http://localhost:${PORT}`);
-});
+});     
