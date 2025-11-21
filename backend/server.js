@@ -45,7 +45,8 @@ app.post("/book-appointment", async (req, res) => {
   id, 
   name, 
   email, 
-  phone, 
+  phone,
+
   date, 
   time, 
   consultType, 
@@ -65,7 +66,7 @@ app.post("/book-appointment", async (req, res) => {
           <b>Email:</b> ${email}<br>
           <b>Date:</b> ${date}<br>
           <b>Slot:</b> ${time}<br>
-          <b>Phone:</b> ${phone}<br>
+             
           <b>Type:</b> ${consultType}
         </div>
         <div style="text-align:center;">
@@ -115,7 +116,7 @@ app.get("/confirm-appointment/:id", (req, res) => {
             <b>Email:</b> ${appointment.email}<br>
             <b>Date:</b> ${appointment.date}<br>
             <b>Slot:</b> ${appointment.time}<br>
-            <b>Phone:</b> ${appointment.phone}<br>
+          
 
             <b>Type:</b> ${appointment.consultType}
           </div>
@@ -202,7 +203,10 @@ app.post("/confirm-appointment/:id", async (req, res) => {
         <b>Email:</b> ${appointment.email}<br>
         <b>Date:</b> ${appointment.date}<br>
         <b>Time:</b> ${finalTime}<br>
+      
         <b>Type:</b> ${appointment.consultType}
+        
+
       </div>`;
 
   if (isOnline && appointment.videoLink) {
