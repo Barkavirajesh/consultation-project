@@ -21,7 +21,8 @@ const Payment = () => {
   const handlePayNow = () => {
     if (isMobile) {
       // Redirect to Google Pay if mobile
-      const upiUrl = `upi://pay?pa=doctor@upi&pn=SidhaHealth&am=500&cu=INR`;
+      const upiUrl = `upi://pay?pa=9976838197@okbizaxis&pn=SidhaHealth&am=500&cu=INR`;
+
       window.location.href = upiUrl;
     } else {
       // On desktop, show QR code section
