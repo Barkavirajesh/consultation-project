@@ -13,7 +13,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // ------------------ Config ------------------
 const JITSI_PREFIX = "sidhahealth";
-const doctorEmail = "barkavir.cse2024@citchennai.net"; // Doctor's email
+const doctorEmail = "tch231017@gmail.com"; // Doctor's email
+// Doctor's email
 const appointments = new Map();
 
 // ------------------ Nodemailer Setup ------------------
@@ -35,12 +36,13 @@ transporter.verify((error, success) => {
 
 // ------------------ STEP 1: Book Appointment ------------------
 app.post("/book-appointment", async (req, res) => {
-  const { name, email, date, time, consultType } = req.body;
+  const { name, email, number, date, time, consultType, age, amount } = req.body;
+
   if (!email || !consultType)
     return res.status(400).json({ error: "Email and consult type are required" });
 
   const id = uuidv4();
-  appointments.set(id, { id, name, email, date, time, consultType, confirmed: false, declined: false });
+  appointments.set(id, { id, name, email, date, time,number ,consultType, confirmed: false, declined: false });
 
   try {
     const confirmLink = `http://localhost:${process.env.PORT || 5000}/confirm-appointment/${id}`;
@@ -53,6 +55,7 @@ app.post("/book-appointment", async (req, res) => {
           <b>Email:</b> ${email}<br>
           <b>Date:</b> ${date}<br>
           <b>Slot:</b> ${time}<br>
+          <b>Phone:</b> ${number}<br>
           <b>Type:</b> ${consultType}
         </div>
         <div style="text-align:center;">
@@ -102,6 +105,7 @@ app.get("/confirm-appointment/:id", (req, res) => {
             <b>Email:</b> ${appointment.email}<br>
             <b>Date:</b> ${appointment.date}<br>
             <b>Slot:</b> ${appointment.time}<br>
+            <b>Phone:</b> ${number}<br>
             <b>Type:</b> ${appointment.consultType}
           </div>
           <form action="/confirm-appointment/${appointment.id}" method="POST" style="margin-bottom:16px;">
@@ -129,7 +133,7 @@ app.post("/confirm-appointment/:id", async (req, res) => {
 
   const { finalTime } = req.body;
   const isOnline = appointment.consultType.toLowerCase() === "online";
-  const consultationFee = 499;
+  const consultationFee = 500;
 
   appointment.confirmed = true;
   appointment.finalTime = finalTime;
@@ -173,7 +177,7 @@ app.post("/confirm-appointment/:id", async (req, res) => {
 
   await transporter.sendMail({
     from: process.env.EMAIL_USER,
-    to: appointment.email,
+    to:    appointment.email,
     subject: "Appointment Confirmed",
     html: patientHtml,
   });
@@ -273,6 +277,17 @@ app.get("/payment/:id", (req, res) => {
       </head>
       <body style="font-family:Roboto,Arial,sans-serif;background:#f7fafc;">
         <div style="max-width:500px;margin:54px auto 0 auto;background:#fff;border-radius:16px;box-shadow:0 2px 11px #eee;padding:38px 32px;">
+
+          <!-- Payment Instruction Message -->
+          <div style="border:1px solid #e1ffc6;padding:18px 22px;border-radius:10px;background:#f5fff0;margin-bottom:15px;">
+            <p style="margin-bottom:12px;color:#009a35;font-weight:500;font-size:1.1em;">Your appointment is confirmed.</p>
+            <p style="color:#a16600;font-size:1.06em;"><strong>Important:</strong> Please do <strong>not make the payment early</strong>.<br>
+            Make the payment <strong>only just before you join the online consultation.</strong></p>
+            <p style="margin:12px 0;">You can pay using the UPI ID below:</p>
+            <p style="font-size:1.21em;"><strong>${upiId}</strong></p>
+            <p style="margin-top:12px;">Once payment is completed, you can proceed with your consultation.</p>
+          </div>
+
           <h2 style="color:#16aa53;text-align:center;margin-bottom:22px;">💳 Pay ₹${amount} for Your Consultation</h2>
           <p style="text-align:center;color:#444;">Scan this QR code to pay to <b>${upiId}</b></p>
           <div style="text-align:center;margin-bottom:10px;">
