@@ -5,6 +5,7 @@ const express = require("express");
 const nodemailer = require("nodemailer");
 const cors = require("cors");
 const { v4: uuidv4 } = require("uuid");
+const FRONTEND_URL = "https://tch-chennai.onrender.com";
 
 const app = express();
 app.use(cors());
