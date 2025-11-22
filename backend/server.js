@@ -56,8 +56,9 @@ app.post("/book-appointment", async (req, res) => {
 
 
   try {
-    const confirmLink = `http://localhost:${process.env.PORT || 5000}/confirm-appointment/${id}`;
-    const declineLink = `http://localhost:${process.env.PORT || 5000}/decline-appointment/${id}`;
+   const confirmLink = `${BASE_URL}/confirm-appointment/${id}`;
+const declineLink = `${BASE_URL}/decline-appointment/${id}`;
+
     const doctorHtml = `
       <div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;background:#f7fafc;padding:28px 30px 20px 30px;border-radius:12px;border:1px solid #eee;">
         <h2 style="color:#16aa53;text-align:center;margin-bottom:18px;">🩺 New Appointment Request</h2>
@@ -154,7 +155,7 @@ app.post("/confirm-appointment/:id", async (req, res) => {
   if (isOnline) {
     appointment.jitsiRoom = `${JITSI_PREFIX}-${Math.random().toString(36).substring(2, 10)}`;
     appointment.videoLink = `https://meet.jit.si/${appointment.jitsiRoom}`;
-    appointment.paymentLink = `http://localhost:${process.env.PORT || 5000}/payment/${appointment.id}`;
+appointment.paymentLink = `${BASE_URL}/payment/${appointment.id}`;
     appointment.amount = consultationFee;
   } else {
     appointment.amount = consultationFee;
