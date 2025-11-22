@@ -1,10 +1,9 @@
-import { number } from "framer-motion";
 import React, { useState } from "react";
 
 export default function Appointment() {
   const [form, setForm] = useState({
     name: "",
-    number: "",
+    phone: "",
     email: "",
     age: "",
     gender: "",
@@ -32,7 +31,7 @@ export default function Appointment() {
       time: form.timeslot,
       consultType: form.consultType,
       age: form.age,
-      number: form.number,
+      phone: form.phone,
       amount: "500"
     };
 
@@ -48,7 +47,9 @@ export default function Appointment() {
     }
 
     try {
-      const res = await fetch("http://localhost:5000/book-appointment", {
+      // --- CHANGE: Use environment variable for BASE_URL here
+      const BASE_URL = process.env.REACT_APP_BASE_URL;
+      const res = await fetch(`${BASE_URL}/book-appointment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -62,14 +63,12 @@ export default function Appointment() {
         );
 
         if (data.appointmentId) {
-          // Store appointmentId for later payment or consultation check
           localStorage.setItem("lastAppointmentId", data.appointmentId);
         }
 
-        // Reset form
         setForm({
           name: "",
-          number: "",
+          phone: "",
           email: "",
           age: "",
           gender: "",
@@ -181,8 +180,8 @@ export default function Appointment() {
               type="text"
               placeholder="Phone Number"
               required
-              value={form.number}
-              onChange={(e) => setForm({ ...form, number: e.target.value })}
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
             />
           </div>
         </div>
