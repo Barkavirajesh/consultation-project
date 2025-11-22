@@ -2,6 +2,7 @@ const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, ".env") });
 const BASE_URL = process.env.BASE_URL;
 
+
 const express = require("express");
 const nodemailer = require("nodemailer");
 const cors = require("cors");
@@ -57,12 +58,8 @@ app.post("/book-appointment", async (req, res) => {
 
 
   try {
-  
-
-const confirmLink = `${BASE_URL}/confirm-appointment/${id}`;
+    const confirmLink = `${BASE_URL}/confirm-appointment/${id}`;
 const declineLink = `${BASE_URL}/decline-appointment/${id}`;
-// For online: 
-appointment.paymentLink = `${BASE_URL}/payment/${appointment.id}`;
 
     const doctorHtml = `
       <div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;background:#f7fafc;padding:28px 30px 20px 30px;border-radius:12px;border:1px solid #eee;">
@@ -161,6 +158,7 @@ app.post("/confirm-appointment/:id", async (req, res) => {
     appointment.jitsiRoom = `${JITSI_PREFIX}-${Math.random().toString(36).substring(2, 10)}`;
     appointment.videoLink = `https://meet.jit.si/${appointment.jitsiRoom}`;
 appointment.paymentLink = `${BASE_URL}/payment/${appointment.id}`;
+
     appointment.amount = consultationFee;
   } else {
     appointment.amount = consultationFee;
@@ -339,7 +337,8 @@ app.get("/payment/:id", (req, res) => {
             }
           });
           paidBtn.addEventListener("click", () => {
-            fetch("/verify-payment/${appointment.id}", { method: "POST" })
+            fetch("${process.env.BASE_URL}/verify-payment/${appointment.id}", { method: "POST" })
+
               .then(res => res.text())
               .then(html => document.body.innerHTML = html)
               .catch(() => alert("Error verifying payment"));
