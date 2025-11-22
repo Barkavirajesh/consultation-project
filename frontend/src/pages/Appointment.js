@@ -47,14 +47,12 @@ export default function Appointment() {
       );
     }
 
-    try {const res = await fetch(
-  `${process.env.REACT_APP_BASE_URL}/book-appointment`,
-  {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }
-);
+    try {
+      const res = await fetch("http://localhost:5000/book-appointment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
 
       const data = await res.json();
 
