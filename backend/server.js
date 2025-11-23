@@ -20,45 +20,57 @@ const appointments = new Map();
 
 // ------------------ Nodemailer Setup ------------------
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp-relay.brevo.com",
+  port: 587,
+  secure: false, // Must be false for Brevo port 587
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: process.env.BREVO_USER,
+    pass: process.env.BREVO_PASS,
   },
 });
 
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("Nodemailer config error:", error);
-  } else {
-    console.log("Nodemailer ready to send emails");
+// Verify transporter configuration
+export async function sendEmail(to, subject, html) {
+  try {
+    await transporter.sendMail({
+      from: `"TCH Appointments" <${process.env.BREVO_USER}>`,
+      to,
+      subject,
+      html,
+    });
+
+    console.log("Email sent successfully via Brevo ✔");
+  } catch (error) {
+    console.error("Brevo Email Error:", error);
   }
-});
+}
 
 // ------------------ STEP 1: Book Appointment ------------------
 app.post("/book-appointment", async (req, res) => {
-  const { name, email, phone, date, time, consultType, age, amount } = req.body;
-  if (!email || !consultType)
-    return res.status(400).json({ error: "Email and consult type are required" });
-
-  const id = uuidv4();
-  appointments.set(id, { 
-  id, 
-  name, 
-  email, 
-  phone,
-
-  date, 
-  time, 
-  consultType, 
-  confirmed: false, 
-  declined: false 
-});
-
-
   try {
+    const { name, email, phone, date, time, consultType, age, amount } = req.body;
+
+    if (!email || !consultType) {
+      return res.status(400).json({ error: "Email and consult type are required" });
+    }
+
+    console.log("Appointment received:", req.body);
+
+    const id = uuidv4();
+    appointments.set(id, {
+      id,
+      name,
+      email,
+      phone,
+      date,
+      time,
+      consultType,
+      confirmed: false,
+      declined: false
+    });
+
     const confirmLink = `${BASE_URL}/confirm-appointment/${id}`;
-const declineLink = `${BASE_URL}/decline-appointment/${id}`;
+    const declineLink = `${BASE_URL}/decline-appointment/${id}`;
 
     const doctorHtml = `
       <div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;background:#f7fafc;padding:28px 30px 20px 30px;border-radius:12px;border:1px solid #eee;">
@@ -87,8 +99,8 @@ const declineLink = `${BASE_URL}/decline-appointment/${id}`;
 
     res.json({ message: "Appointment request sent.", appointmentId: id });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to send email." });
+    console.error("Error in /book-appointment:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
