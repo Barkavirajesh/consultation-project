@@ -1,445 +1,249 @@
+// server.js
 import path from "path";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import express from "express";
 import nodemailer from "nodemailer";
 import cors from "cors";
 import { v4 as uuidv4 } from "uuid";
-import { fileURLToPath } from "url";
+import { createClient } from "@supabase/supabase-js";
 
-// Required to use __dirname in ES module
+// ---------------- ENV SETUP ----------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Load .env
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
-const BASE_URL = process.env.BACKEND_URL;
-
 const app = express();
-app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ------------------ Config ------------------
-const JITSI_PREFIX = "sidhahealth";
-const doctorEmail = "tch231017@gmail.com";
-const appointments = new Map();
+const BASE_URL = process.env.BACKEND_URL || "http://localhost:5000";
 
-// ------------------ Nodemailer Setup ------------------
+// ---------------- CORS ----------------
+app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
+
+// ---------------- EMAIL ----------------
 const transporter = nodemailer.createTransport({
-  host: "smtp-relay.brevo.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.BREVO_USER,
-    pass: process.env.BREVO_PASS,
-  },
+  service: "gmail",
+  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
 });
+const doctorEmail = "tch231017@gmail.com";
+const JITSI_PREFIX = "sidhahealth";
 
-// Send Email helper
-export async function sendEmail(to, subject, html) {
-  try {
-    await transporter.sendMail({
-      from: `"TCH Appointments" <${process.env.BREVO_USER}>`,
-      to,
-      subject,
-      html,
-    });
-    console.log("Email sent successfully ✔");
-  } catch (err) {
-    console.error("Email Error:", err);
-  }
+// ---------------- SUPABASE ----------------
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("❌ Missing Supabase variables");
+  process.exit(1);
 }
 
-// ------------------ STEP 1: Book Appointment ------------------
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ---------------- HELPERS ----------------
+async function saveAppointment(obj) {
+  const { data, error } = await supabase
+    .from("appointments")
+    .upsert([obj], { onConflict: "id" });
+  if (error) {
+    console.error("Supabase upsert error:", error);
+    throw error;
+  }
+  return data;
+}
+
+async function getAppointment(id) {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) {
+    console.error("Supabase select error:", error);
+    return null;
+  }
+  return data;
+}
+
+// ---------------- ROUTES ----------------
+
+// 1️⃣ Book Appointment
 app.post("/book-appointment", async (req, res) => {
   try {
-    const { name, email, phone, date, time, consultType } = req.body;
-
-    if (!email || !consultType)
-      return res.status(400).json({ error: "Email and consult type are required" });
+    const { name, email, number, date, time, consultType } = req.body;
+    if (!name || !email || !number)
+      return res.status(400).json({ error: "Missing required fields" });
 
     const id = uuidv4();
-    appointments.set(id, {
+    const appointment = {
       id,
+       // unique id for RLS tracking
       name,
       email,
-      phone,
+      phone: number,
       date,
       time,
-      consultType,
+      consult_type: consultType,
       confirmed: false,
       declined: false,
-    });
+    };
+
+    await saveAppointment(appointment);
 
     const confirmLink = `${BASE_URL}/confirm-appointment/${id}`;
     const declineLink = `${BASE_URL}/decline-appointment/${id}`;
 
     const doctorHtml = `
-      <h2>New Appointment Request</h2>
-      Patient: ${name}<br>
-      Email: ${email}<br>
-      Date: ${date}<br>
-      Time: ${time}<br><br>
-      <a href="${confirmLink}">Confirm</a> |
-      <a href="${declineLink}">Decline</a>
+      <h2>New Appointment</h2>
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Date:</strong> ${date}</p>
+      <p><strong>Time:</strong> ${time}</p>
+      <p><strong>Type:</strong> ${consultType}</p>
+      <br>
+      <a href="${confirmLink}" style="color:green">Confirm</a> |
+      <a href="${declineLink}" style="color:red">Decline</a>
     `;
 
     await transporter.sendMail({
-      from: process.env.BREVO_USER,
+      from: process.env.EMAIL_USER,
       to: doctorEmail,
       subject: "New Appointment Request",
       html: doctorHtml,
     });
 
-    res.json({ message: "Appointment request sent.", appointmentId: id });
-
+    res.json({ message: "Request sent successfully", appointmentId: id });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error("Error in /book-appointment:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ------------------ OTHER ROUTES (UNCHANGED) ------------------
-// Your entire logic stays the same — only imports changed
-
-// (I am keeping everything as you wrote it.)
-
-
-// ------------------ STEP 2: Doctor Confirmation Page ------------------
-app.get("/confirm-appointment/:id", (req, res) => {
-  const appointment = appointments.get(req.params.id);
+// 2️⃣ Confirm Appointment Page
+app.get("/confirm-appointment/:id", async (req, res) => {
+  const appointment = await getAppointment(req.params.id);
   if (!appointment)
-    return res.status(404).send('<div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:40px;text-align:center;"><h3 style="color:#c00;font-weight:600;">❌ Appointment not found.</h3></div>');
+    return res.status(404).send("<h1 style='color:red;'>❌ Appointment not found.</h1>");
 
   if (appointment.confirmed)
-    return res.send('<div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:40px;text-align:center;"><h3 style="color:#16aa53;font-weight:600;">✅ Already confirmed.</h3></div>');
-
+    return res.send("<h2>✅ This appointment is already confirmed.</h2>");
   if (appointment.declined)
-    return res.send('<div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:40px;text-align:center;"><h3 style="color:#c00;font-weight:600;">❌ Appointment already declined.</h3></div>');
+    return res.send("<h2>❌ This appointment was already declined.</h2>");
 
   res.send(`
-    <html>
-      <head>
-        <title>Confirm or Decline Appointment</title>
-        <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
-      </head>
-      <body style="font-family:Roboto,Arial,sans-serif;background:#f7fafc;">
-        <div style="max-width:540px;margin:54px auto 0 auto;background:#fff;border-radius:14px;box-shadow:0 2px 10px #eee;padding:35px 32px;">
-          <h2 style="color:#16aa53;text-align:center;margin-bottom:22px;">Confirm or Decline Appointment</h2>
-          <div style="margin-bottom:18px;padding:14px;background:#eef9f1;border-radius:6px;">
-            <b>Patient:</b> ${appointment.name}<br>
-            <b>Email:</b> ${appointment.email}<br>
-            <b>Date:</b> ${appointment.date}<br>
-            <b>Slot:</b> ${appointment.time}<br>
-          
+    <h2>Confirm Appointment</h2>
+    <p><strong>Name:</strong> ${appointment.name}</p>
+    <p><strong>Email:</strong> ${appointment.email}</p>
+    <p><strong>Date:</strong> ${appointment.date}</p>
+    <p><strong>Time:</strong> ${appointment.time}</p>
+    <p><strong>Type:</strong> ${appointment.consult_type}</p>
 
-            <b>Type:</b> ${appointment.consultType}
-          </div>
-          <form action="/confirm-appointment/${appointment.id}" method="POST" style="margin-bottom:16px;">
-            <label style="font-weight:500;">Final Consultation Time:</label><br>
-            <input type="text" name="finalTime" required style="width:100%;padding:10px 8px;margin:10px 0 18px 0;border:1px solid #ccc;border-radius:6px;"><br>
-            <button type="submit" style="background:#16aa53;color:white;padding:12px 22px;border:none;border-radius:8px;font-size:17px;font-weight:500;">Confirm</button>
-          </form>
-          <form action="/decline-appointment/${appointment.id}" method="POST">
-            <label style="font-weight:500;color:#c00;">Reason for Decline (optional):</label><br>
-            <input type="text" name="declineReason" placeholder="Type reason here..." style="width:100%;padding:10px 8px;margin:10px 0 18px 0;border:1px solid #ccc;border-radius:6px;"><br>
-            <button type="submit" style="background:#c00;color:white;padding:12px 22px;border:none;border-radius:8px;font-size:17px;font-weight:500;">Decline</button>
-          </form>
-        </div>
-      </body>
-    </html>
+    <form method="POST">
+      <label>Final Time:</label>
+      <input name="finalTime" required />
+      <button type="submit">Confirm</button>
+    </form>
+
+    <form action="${BASE_URL}/decline-appointment/${appointment.id}" method="POST">
+      <label>Decline Reason:</label>
+      <input name="declineReason" />
+      <button type="submit">Decline</button>
+    </form>
   `);
 });
 
-// Confirm POST
+// 3️⃣ Confirm Appointment POST
 app.post("/confirm-appointment/:id", async (req, res) => {
-  const appointment = appointments.get(req.params.id);
-  if (!appointment) return res.status(404).send("Appointment not found.");
-  if (appointment.declined)
-    return res.send('<div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:44px;text-align:center;"><h3 style="color:#c00;font-weight:600;">❌ Appointment already declined.</h3></div>');
+  const appointment = await getAppointment(req.params.id);
+  if (!appointment) return res.send("❌ Appointment not found");
 
-  const { finalTime } = req.body;
-  const isOnline = appointment.consultType.toLowerCase() === "online";
-  const consultationFee = 500;
+  const finalTime = req.body.finalTime;
+  const isOnline = appointment.consult_type?.toLowerCase() === "online";
+  const amount = 500;
 
-  appointment.confirmed = true;
-  appointment.finalTime = finalTime;
-  appointment.paymentDone = false;
+  const updates = {
+    confirmed: true,
+    final_time: finalTime,
+    amount,
+    payment_done: false,
+  };
 
   if (isOnline) {
-    appointment.jitsiRoom = `${JITSI_PREFIX}-${Math.random().toString(36).substring(2, 10)}`;
-    appointment.videoLink = `https://meet.jit.si/${appointment.jitsiRoom}`;
-    appointment.paymentLink = `${BASE_URL}/payment/${appointment.id}`;
-
-    appointment.amount = consultationFee;
-  } else {
-    appointment.amount = consultationFee;
+    const room = `${JITSI_PREFIX}-${Math.random().toString(36).slice(2, 10)}`;
+    updates.jitsi_room = room;
+    updates.video_link = `https://meet.jit.si/${room}`;
+    updates.payment_link = `${BASE_URL}/payment/${appointment.id}`;
   }
-  appointments.set(appointment.id, appointment);
 
-  // Patient confirmation email
-  const patientHtml = `
-    <div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;background:#fff;padding:32px 32px 22px 32px;border-radius:14px;border:1px solid #eee;">
-      <h2 style="color:#16aa53;text-align:center;margin-bottom:22px;">✅ Appointment Confirmed!</h2>
-      <div style="margin-bottom:18px;padding:14px;background:#eef9f1;border-radius:6px;">
-        Hello ${appointment.name}, your appointment is confirmed.<br>
-        <b>Date:</b> ${appointment.date}<br>
-        <b>Time:</b> ${finalTime}<br>
-        <b>Fee:</b> ₹${consultationFee}
-      </div>
+  await saveAppointment({ ...appointment, ...updates });
 
-      ${
-        isOnline
-          ? `
-            <div style="text-align:center;margin-bottom:12px;">
-              <a href="${appointment.paymentLink}" style="background:#16aa53;color:white;padding:12px 30px;text-decoration:none;font-size:18px;border-radius:8px;">💳 Pay Now</a>
-            </div>
-            <p style="margin-top:8px;color:#666;text-align:center;">After payment, you will receive your video consultation link.</p>
-          `
-          : `
-            <p style="margin-top:8px;color:#666;text-align:center;">Please visit the clinic at your scheduled time.</p>
-          `
-      }
-    </div>
-  `;
+  let html = `<h2>Appointment Confirmed</h2>
+    <p>Date: ${appointment.date}</p>
+    <p>Time: ${finalTime}</p>
+    <p>Fee: ₹${amount}</p>`;
+  if (isOnline) html += `<p><a href="${updates.payment_link}">Pay Now</a></p>`;
 
   await transporter.sendMail({
     from: process.env.EMAIL_USER,
-    to:    appointment.email,
+    to: appointment.email,
     subject: "Appointment Confirmed",
-    html: patientHtml,
+    html,
   });
 
-  // Doctor confirmation/consultation link email
-  let docHtml = `
-    <div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;background:#fff;padding:32px 32px 22px 32px;border-radius:14px;border:1px solid #eee;">
-      <h2 style="color:#16aa53;text-align:center;margin-bottom:22px;">✅ Appointment Confirmed</h2>
-      <div style="margin-bottom:18px;padding:14px;background:#eef9f1;border-radius:6px;">
-        <b>Patient:</b> ${appointment.name}<br>
-        <b>Email:</b> ${appointment.email}<br>
-        <b>Date:</b> ${appointment.date}<br>
-        <b>Time:</b> ${finalTime}<br>
-      
-        <b>Type:</b> ${appointment.consultType}
-        
-
-      </div>`;
-
-  if (isOnline && appointment.videoLink) {
-    docHtml += `
-      <div style="margin-bottom:18px;text-align:center;padding:10px 0 0 0;">
-        <a href="${appointment.videoLink}" style="background:#16aa53;color:white;padding:12px 28px;text-decoration:none;font-size:18px;border-radius:8px;display:inline-block;">
-          🔗 Doctor Consultation Link
-        </a>
-        <div style="margin-top:10px;color:#666;text-align:center;font-size:15px;">
-          Click above to join at the scheduled time.
-        </div>
-      </div>
-    `;
-  }
-  docHtml += `</div>`;
-
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: doctorEmail,
-    subject: "Appointment Confirmed - Patient Details & Consultation Link",
-    html: docHtml,
-  });
-
-  res.send(`
-    <div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:44px;text-align:center;">
-      <h3 style="color:#16aa53;font-weight:600;">✅ Appointment confirmed and patient notified!</h3>
-    </div>
-  `);
+  res.send("✅ Confirmed successfully!");
 });
 
-// Decline POST
+// 4️⃣ Decline Appointment
 app.post("/decline-appointment/:id", async (req, res) => {
-  const appointment = appointments.get(req.params.id);
-  if (!appointment) return res.status(404).send("Appointment not found.");
-  if (appointment.confirmed)
-    return res.send('<div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:44px;text-align:center;"><h3 style="color:#16aa53;font-weight:600;">✅ Appointment already confirmed.</h3></div>');
+  const appointment = await getAppointment(req.params.id);
+  if (!appointment) return res.send("❌ Appointment not found");
 
-  appointment.declined = true;
-  appointment.declineReason = req.body.declineReason || "No reason provided.";
+  const reason = req.body.declineReason || "No reason given";
+  await saveAppointment({ ...appointment, declined: true, decline_reason: reason });
 
-  // Patient decline email
-  const declineHtml = `
-    <div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;background:#fff;padding:32px 32px 22px 32px;border-radius:14px;border:1px solid #eee;">
-      <h2 style="color:#c00;text-align:center;margin-bottom:22px;">❌ Appointment Declined</h2>
-      <div style="margin-bottom:18px;padding:14px;background:#fbeaea;border-radius:6px;">
-        Hello ${appointment.name}, your appointment request was declined.<br>
-        <b>Date:</b> ${appointment.date}<br>
-        <b>Time:</b> ${appointment.time}<br>
-      </div>
-      <p style="margin:0 6px 12px;color:#444;">Reason: ${appointment.declineReason}</p>
-      <p style="color:#989898;text-align:center;">You may try booking another slot.</p>
-    </div>
-  `;
   await transporter.sendMail({
     from: process.env.EMAIL_USER,
     to: appointment.email,
     subject: "Appointment Declined",
-    html: declineHtml,
+    html: `<h3>Your appointment was declined</h3><p>${reason}</p>`,
   });
 
-  res.send(`
-    <div style="font-family:Roboto,Arial,sans-serif;max-width:540px;margin:auto;padding:44px;text-align:center;">
-      <h3 style="color:#c00;font-weight:600;">❌ Appointment declined and patient notified!</h3>
-    </div>
-  `);
+  res.send("❌ Appointment declined.");
 });
 
-// ------------------ STEP 4: Payment Page ------------------
-app.get("/payment/:id", (req, res) => {
-  const appointment = appointments.get(req.params.id);
-  if (!appointment) return res.status(404).send("Appointment not found");
+// 5️⃣ Payment Page
+app.get("/payment/:id", async (req, res) => {
+  const appointment = await getAppointment(req.params.id);
+  if (!appointment) return res.send("❌ Appointment not found");
 
-  const upiId = process.env.UPI_ID || "yourupiid@oksbi";
+  const upi = process.env.UPI_ID;
   const amount = appointment.amount;
-  const upiLink = `upi://pay?pa=${upiId}&pn=SidhaHealth&am=${amount}&cu=INR&tn=Consultation`;
-  const qrImage = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(upiLink)}&size=270x270`;
+  const upiLink = `upi://pay?pa=${upi}&pn=SidhaHealth&am=${amount}&cu=INR`;
+  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiLink)}`;
 
   res.send(`
-    <html>
-      <head>
-        <title>Pay Consultation Fee</title>
-        <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
-      </head>
-      <body style="font-family:Roboto,Arial,sans-serif;background:#f7fafc;">
-        <div style="max-width:500px;margin:54px auto 0 auto;background:#fff;border-radius:16px;box-shadow:0 2px 11px #eee;padding:38px 32px;">
-
-          <!-- Payment Instruction Message -->
-          <div style="border:1px solid #e1ffc6;padding:18px 22px;border-radius:10px;background:#f5fff0;margin-bottom:15px;">
-            <p style="margin-bottom:12px;color:#009a35;font-weight:500;font-size:1.1em;">Your appointment is confirmed.</p>
-            <p style="color:#a16600;font-size:1.06em;"><strong>Important:</strong> Please do <strong>not make the payment early</strong>.<br>
-            Make the payment <strong>only just before you join the online consultation.</strong></p>
-            <p style="margin:12px 0;">You can pay using the UPI ID below:</p>
-            <p style="font-size:1.21em;"><strong>${upiId}</strong></p>
-            <p style="margin-top:12px;">Once payment is completed, you can proceed with your consultation.</p>
-          </div>
-
-          <h2 style="color:#16aa53;text-align:center;margin-bottom:22px;">💳 Pay ₹${amount} for Your Consultation</h2>
-          <p style="text-align:center;color:#444;">Scan this QR code to pay to <b>${upiId}</b></p>
-          <div style="text-align:center;margin-bottom:10px;">
-            <img src="${qrImage}" alt="UPI QR" style="margin-bottom:8px;border-radius:10px;">
-          </div>
-          <div style="text-align:center;margin-bottom:18px;">
-            <a id="upi-link" href="${upiLink}" style="background:#16aa53;color:white;padding:11px 26px;text-decoration:none;font-size:17px;border-radius:7px;display:inline-block;">Open UPI App</a>
-          </div>
-          <p id="wait-text" style="color:#555;text-align:center;">Please complete your payment in your UPI app.</p>
-          <div style="text-align:center;">
-            <button id="paid-btn" style="display:none;padding:11px 21px;background:#16aa53;color:white;border:none;border-radius:7px;font-size:17px;">✅ I’ve Paid</button>
-          </div>
-        </div>
-        <script>
-          window.paymentPageLoadTime = Date.now();
-          const paidBtn = document.getElementById("paid-btn");
-          const waitText = document.getElementById("wait-text");
-          function showPaidButton() {
-            waitText.innerText = "If your payment is complete, click below:";
-            paidBtn.style.display = "inline-block";
-          }
-          setTimeout(showPaidButton, 120000);
-          document.addEventListener("visibilitychange", () => {
-            if (!document.hidden) {
-              if (window.paymentPageLoadTime && (Date.now() - window.paymentPageLoadTime) >= 120000) {
-                showPaidButton();
-              }
-            }
-          });
-          paidBtn.addEventListener("click", () => {
-            fetch("/verify-payment/${appointment.id}", { method: "POST" })
-              .then(res => res.text())
-              .then(html => document.body.innerHTML = html)
-              .catch(() => alert("Error verifying payment"));
-          });
-        </script>
-      </body>
-    </html>
+    <h2>Pay ₹${amount}</h2>
+    <img src="${qr}" />
+    <br><br>
+    <a href="${upiLink}">Pay Using UPI</a>
   `);
 });
 
-// ------------------ STEP 5: Verify Payment ------------------
-app.post("/verify-payment/:id", (req, res) => {
-  const appointment = appointments.get(req.params.id);
-  if (!appointment) return res.status(404).send("Appointment not found");
+// 6️⃣ Consultation Link
+app.get("/consultation/:id", async (req, res) => {
+  const appointment = await getAppointment(req.params.id);
+  if (!appointment) return res.send("❌ Appointment not found");
+  if (!appointment.payment_done) return res.send("⚠ Payment Pending");
 
-  appointment.paymentDone = true;
-  appointments.set(appointment.id, appointment);
+  if (appointment.video_link)
+    return res.send(`<h2>Join Online Consultation</h2><a href="${appointment.video_link}">Join Now</a>`);
 
-  res.send(`
-    <html>
-      <head>
-        <title>Payment Verified</title>
-        <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
-      </head>
-      <body style="font-family:Roboto,Arial,sans-serif;background:#f7fafc;">
-        <div style="max-width:500px;margin:54px auto 0 auto;background:#fff;border-radius:16px;box-shadow:0 2px 11px #eee;padding:42px 32px;text-align:center;">
-          <h2 style="color:#16aa53;margin-bottom:14px;">✅ Payment Verified Successfully!</h2>
-          <p style="font-size:1.1em;color:#444;">Thank you, <b>${appointment.name}</b>. Your payment has been received.</p>
-          <div style="margin:24px auto 0 auto;padding:18px 0;border-top:1px solid #e1e1e1;">
-            <p><b>Date:</b> ${appointment.date}</p>
-            <p><b>Time:</b> ${appointment.finalTime}</p>
-          </div>
-          ${
-            appointment.videoLink
-              ? `<div style="margin:21px auto 0 auto;">
-                  <p style="color:#444;">Your video consultation link is ready:</p>
-                  <a href="${appointment.videoLink}" target="_blank"
-                    style="display:inline-block;margin-top:14px;background:#16aa53;color:white;padding:12px 25px;text-decoration:none;border-radius:8px;font-size:18px;">
-                    🔗 Join Consultation
-                  </a>
-                  <p style="margin-top:10px;color:#666;">Click above to start your online consultation.</p>
-                </div>`
-              : `<p style="margin-top:14px;">This is an in-person appointment. Please visit the clinic at your scheduled time.</p>`
-          }
-        </div>
-      </body>
-    </html>
-  `);
+  res.send(`<h2>Offline Consultation</h2>
+    <p>Date: ${appointment.date}</p>
+    <p>Time: ${appointment.final_time}</p>`);
 });
 
-// ------------------ STEP 6: Consultation Access ------------------
-app.get("/consultation/:id", (req, res) => {
-  const appointment = appointments.get(req.params.id);
-  if (!appointment) return res.status(404).send("Appointment not found");
-
-  if (!appointment.paymentDone)
-    return res.send('<div style="font-family:Roboto,Arial,sans-serif;max-width:500px;margin:54px auto 0 auto;background:#fff;border-radius:16px;box-shadow:0 2px 11px #eee;padding:40px 32px;text-align:center;"><h3>⚠️ Please complete payment first.</h3></div>');
-
-  if (appointment.videoLink) return res.redirect(appointment.videoLink);
-
-  res.send(`
-    <html>
-      <head>
-        <title>Offline Consultation Confirmed</title>
-        <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
-      </head>
-      <body style="font-family:Roboto,Arial,sans-serif;background:#f7fafc;">
-        <div style="max-width:480px;margin:54px auto 0 auto;background:#fff;border-radius:14px;box-shadow:0 2px 10px #eee;padding:30px 26px;">
-          <h3 style="color:#16aa53;text-align:center;">✅ Your offline consultation is confirmed.</h3>
-          <div style="margin-top:18px;padding:14px;background:#eef9f1;border-radius:7px;">
-            <b>Date:</b> ${appointment.date}<br>
-            <b>Time:</b> ${appointment.finalTime}
-          </div>
-          <p style="margin-top:12px;color:#666;text-align:center;">Please visit the clinic at your scheduled time.</p>
-        </div>
-      </body>
-    </html>
-  `);
-});
-app.use(express.static(path.join(__dirname, "../frontend/build")));
-
-app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/build/index.html"));
-});
-
-
-// Start Server
+// ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`➡️ Open in browser: http://localhost:${PORT}`);
-});     
+app.listen(PORT, () => console.log(`Server running on port ${PORT}, open: ${BASE_URL}`));
